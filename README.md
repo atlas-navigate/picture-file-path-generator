@@ -24,6 +24,11 @@ are grouped into a subfolder per file extension, lowercased and without
 the leading dot — e.g. `Misc/pdf/`, `Misc/txt/`. Files with no extension
 at all are grouped under `Misc/no_extension/`.
 
+Exception: if a Misc file shares its filename (stem) with a video in the
+*same* source folder — e.g. a camcorder writing `clip1.VOD` alongside a
+`clip1.MOI` index/thumbnail file — that companion file is kept next to
+the video instead of being split off into `Misc/<ext>/`.
+
 ## Setup
 
 ```

@@ -44,7 +44,9 @@ from organizer.models import FileCategory
         ("movie.3gp", FileCategory.VIDEO),
         ("movie.mts", FileCategory.VIDEO),
         ("movie.m2ts", FileCategory.VIDEO),
+        ("movie.vod", FileCategory.VIDEO),
         ("MOVIE.MP4", FileCategory.VIDEO),
+        ("MOVIE.VOD", FileCategory.VIDEO),
         # Misc: unrelated extensions
         ("document.txt", FileCategory.MISC),
         ("document.pdf", FileCategory.MISC),

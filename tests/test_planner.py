@@ -113,6 +113,74 @@ def test_scan_source_misc_groups_by_extension(
     assert no_ext_pf.dest_path == dest / "Misc" / "no_extension" / "LICENSE"
 
 
+def test_scan_source_misc_file_grouped_with_matching_video_stem(
+    tmp_path: Path, set_mtime
+) -> None:
+    """A MISC file sharing a video's filename stem in the same directory
+    (e.g. a JVC .VOD clip plus its .MOI index/thumbnail file) should land
+    next to that video, not in Misc/<ext>/."""
+    src = tmp_path / "src"
+    dest = tmp_path / "dest"
+    (src / "camcorder").mkdir(parents=True)
+
+    clip = src / "camcorder" / "clip1.VOD"
+    clip.write_bytes(b"not a real video, just bytes for the test")
+    set_mtime(clip, datetime(2015, 7, 4, 12, 0, 0))
+
+    # Case differs from the clip's stem on purpose, to also exercise
+    # case-insensitive stem matching.
+    companion = src / "camcorder" / "CLIP1.moi"
+    companion.write_bytes(b"companion index file")
+
+    unrelated = src / "camcorder" / "notes.txt"
+    unrelated.write_text("unrelated misc file, no stem match")
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    clip_pf = by_source[clip]
+    assert clip_pf.category == FileCategory.VIDEO
+    assert clip_pf.dest_path == dest / "Videos" / "2015" / "July 2015" / "clip1.VOD"
+
+    companion_pf = by_source[companion]
+    assert companion_pf.category == FileCategory.MISC
+    assert companion_pf.dest_path == dest / "Videos" / "2015" / "July 2015" / "CLIP1.moi"
+
+    unrelated_pf = by_source[unrelated]
+    assert unrelated_pf.category == FileCategory.MISC
+    assert unrelated_pf.dest_path == dest / "Misc" / "txt" / "notes.txt"
+
+    # Grouping is per-directory only: counts_by_category still reflects
+    # the companion as MISC, not VIDEO.
+    assert plan.summary.counts_by_category[FileCategory.VIDEO] == 1
+    assert plan.summary.counts_by_category[FileCategory.MISC] == 2
+
+
+def test_scan_source_misc_stem_match_scoped_to_same_directory(
+    tmp_path: Path, set_mtime
+) -> None:
+    """A MISC file must NOT be grouped with a same-named video that lives
+    in a different source directory."""
+    src = tmp_path / "src"
+    dest = tmp_path / "dest"
+    (src / "dir_a").mkdir(parents=True)
+    (src / "dir_b").mkdir(parents=True)
+
+    clip = src / "dir_a" / "clip1.VOD"
+    clip.write_bytes(b"video bytes")
+    set_mtime(clip, datetime(2015, 7, 4, 12, 0, 0))
+
+    lookalike = src / "dir_b" / "clip1.moi"
+    lookalike.write_bytes(b"unrelated file with a coincidentally matching stem")
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    lookalike_pf = by_source[lookalike]
+    assert lookalike_pf.category == FileCategory.MISC
+    assert lookalike_pf.dest_path == dest / "Misc" / "moi" / "clip1.moi"
+
+
 def test_scan_source_conflict_produces_disambiguated_names(
     tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
 ) -> None:
