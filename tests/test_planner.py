@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from organizer.models import FileCategory
+from organizer.planner import scan_source
+
+
+def _build_source_tree(tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime):
+    """Builds:
+      src/2012_batch/june_photo.jpg      -- EXIF 2012-06-15
+      src/2020_batch/aug_photo.jpg       -- EXIF 2020-08-01
+      src/no_exif/plain.jpg              -- no EXIF, forced mtime 2019-03-10
+      src/misc_stuff/notes.txt           -- misc, mirrors relative path
+      src/conflict_a/dup.jpg             -- EXIF 2021-01-05 (same month as conflict_b)
+      src/conflict_b/dup.jpg             -- EXIF 2021-01-20 (same month -> collides)
+    """
+    src = tmp_path / "src"
+    dest = tmp_path / "dest"
+
+    (src / "2012_batch").mkdir(parents=True)
+    (src / "2020_batch").mkdir(parents=True)
+    (src / "no_exif").mkdir(parents=True)
+    (src / "misc_stuff").mkdir(parents=True)
+    (src / "conflict_a").mkdir(parents=True)
+    (src / "conflict_b").mkdir(parents=True)
+
+    june_photo = src / "2012_batch" / "june_photo.jpg"
+    make_jpeg_with_exif_datetime(june_photo, datetime(2012, 6, 15, 10, 0, 0))
+
+    aug_photo = src / "2020_batch" / "aug_photo.jpg"
+    make_jpeg_with_exif_datetime(aug_photo, datetime(2020, 8, 1, 9, 30, 0))
+
+    plain_photo = src / "no_exif" / "plain.jpg"
+    from PIL import Image
+    Image.new("RGB", (8, 8), color="yellow").save(plain_photo)
+    forced_mtime = datetime(2019, 3, 10, 12, 0, 0)
+    set_mtime(plain_photo, forced_mtime)
+
+    notes = src / "misc_stuff" / "notes.txt"
+    notes.write_text("just some notes")
+
+    dup_a = src / "conflict_a" / "dup.jpg"
+    make_jpeg_with_exif_datetime(dup_a, datetime(2021, 1, 5, 8, 0, 0))
+
+    dup_b = src / "conflict_b" / "dup.jpg"
+    make_jpeg_with_exif_datetime(dup_b, datetime(2021, 1, 20, 8, 0, 0))
+
+    return src, dest, {
+        "june_photo": june_photo,
+        "aug_photo": aug_photo,
+        "plain_photo": plain_photo,
+        "forced_mtime": forced_mtime,
+        "notes": notes,
+        "dup_a": dup_a,
+        "dup_b": dup_b,
+    }
+
+
+def test_scan_source_builds_correct_dest_paths(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    june_pf = by_source[files["june_photo"]]
+    assert june_pf.category == FileCategory.PICTURE
+    assert june_pf.date_source == "exif"
+    assert june_pf.dest_path == dest / "Pictures" / "2012" / "June 2012" / "june_photo.jpg"
+
+    aug_pf = by_source[files["aug_photo"]]
+    assert aug_pf.dest_path == dest / "Pictures" / "2020" / "August 2020" / "aug_photo.jpg"
+
+    plain_pf = by_source[files["plain_photo"]]
+    assert plain_pf.date_source == "filesystem_mtime"
+    assert plain_pf.capture_dt == files["forced_mtime"]
+    assert plain_pf.dest_path == dest / "Pictures" / "2019" / "March 2019" / "plain.jpg"
+
+
+def test_scan_source_misc_mirrors_relative_source_path(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    notes_pf = by_source[files["notes"]]
+    assert notes_pf.category == FileCategory.MISC
+    assert notes_pf.dest_path == dest / "Misc" / "misc_stuff" / "notes.txt"
+
+
+def test_scan_source_conflict_produces_disambiguated_names(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    dup_a_pf = by_source[files["dup_a"]]
+    dup_b_pf = by_source[files["dup_b"]]
+
+    # Both land in the same Pictures/2021/January 2021 dir since both
+    # dated to January 2021 -> must collide and be disambiguated.
+    assert dup_a_pf.dest_path.parent == dup_b_pf.dest_path.parent
+    dest_names = sorted([dup_a_pf.dest_path.name, dup_b_pf.dest_path.name])
+    assert dest_names == ["dup.1.jpg", "dup.jpg"]
+
+    # Exactly one of the two should be flagged as renamed for conflict.
+    renamed_flags = sorted([dup_a_pf.was_renamed_for_conflict, dup_b_pf.was_renamed_for_conflict])
+    assert renamed_flags == [False, True]
+
+    # Neither source file is lost: both appear in the plan with distinct
+    # dest paths.
+    assert dup_a_pf.dest_path != dup_b_pf.dest_path
+
+
+def test_scan_source_summary_counts(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    plan = scan_source(src, dest)
+    summary = plan.summary
+
+    # 5 pictures total: june_photo, aug_photo, plain_photo, dup_a, dup_b
+    assert summary.counts_by_category[FileCategory.PICTURE] == 5
+    assert summary.counts_by_category[FileCategory.MISC] == 1
+    assert FileCategory.VIDEO not in summary.counts_by_category or summary.counts_by_category[FileCategory.VIDEO] == 0
+
+    assert summary.counts_by_year_month[(FileCategory.PICTURE, 2012, 6)] == 1
+    assert summary.counts_by_year_month[(FileCategory.PICTURE, 2020, 8)] == 1
+    assert summary.counts_by_year_month[(FileCategory.PICTURE, 2019, 3)] == 1
+    assert summary.counts_by_year_month[(FileCategory.PICTURE, 2021, 1)] == 2
+
+    assert summary.total_conflicts == 1
+    assert summary.error_count == 0
+
+    total_size = sum(pf.size_bytes for pf in plan.files)
+    assert summary.total_size_bytes == total_size
+
+    # Sanity: number of PlannedFiles matches total file count on disk.
+    assert len(plan.files) == 6
+
+
+def test_scan_source_all_source_files_accounted_for(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    """Zero-data-loss sanity check: every real file under source_root
+    must appear exactly once in the plan (or once in errors)."""
+    src, dest, _files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    all_source_files = {p for p in src.rglob("*") if p.is_file()}
+
+    plan = scan_source(src, dest)
+    planned_sources = {pf.source_path for pf in plan.files}
+    error_sources = {e.source_path for e in plan.errors}
+
+    # Every real file is accounted for exactly once, either in the plan
+    # or in errors -- nothing is silently dropped.
+    assert planned_sources | error_sources == all_source_files
+    assert planned_sources.isdisjoint(error_sources)
+    assert not plan.errors  # nothing should have errored in this scenario
+
+
+def test_scan_source_progress_callback_invoked(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, _files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    calls = []
+    scan_source(src, dest, progress_callback=lambda n: calls.append(n))
+
+    assert len(calls) >= 1
+    # Final call should report the true total number of files seen.
+    total_files = sum(1 for p in src.rglob("*") if p.is_file())
+    assert calls[-1] == total_files
+
+
+def test_scan_source_never_writes_to_disk(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
+) -> None:
+    src, dest, _files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+
+    scan_source(src, dest)
+
+    # Pass 1 must be entirely read-only: dest_root must not have been
+    # created just from planning.
+    assert not dest.exists()

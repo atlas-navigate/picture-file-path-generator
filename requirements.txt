@@ -1,0 +1,10 @@
+# Runtime
+PySide6
+Pillow
+pillow-heif
+exifread
+hachoir
+
+# Dev / test only
+pytest
+piexif
