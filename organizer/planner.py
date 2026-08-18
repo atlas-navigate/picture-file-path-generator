@@ -81,12 +81,16 @@ def scan_source(source_root: Path, dest_root: Path, progress_callback=None) -> C
                     / f"{MONTH_NAMES[capture_dt.month]} {capture_dt.year}"
                 )
             else:
-                # MISC: not date-sorted. Mirror the file's directory
-                # structure relative to source_root under dest/Misc, to
-                # preserve whatever organization the user already had
-                # for non-media files.
-                relative_parent_dir = path.parent.relative_to(source_root)
-                dest_dir = dest_root / "Misc" / relative_parent_dir
+                # MISC: not date-sorted. Group by file extension under
+                # dest/Misc so that similar non-media file types land
+                # together (e.g. Misc/pdf/, Misc/txt/), regardless of
+                # where they lived in the source tree. Lowercased to
+                # match the convention classify_file() already uses
+                # for extension comparisons. Extensionless files (and
+                # dotfiles like ".bashrc", whose Path.suffix is also
+                # "") go into a fixed "no_extension" bucket.
+                ext = path.suffix.lower().lstrip(".")
+                dest_dir = dest_root / "Misc" / (ext if ext else "no_extension")
                 # capture_dt/date_source aren't used for MISC path
                 # placement, but PlannedFile still needs them fully
                 # populated so callers never have to special-case None.

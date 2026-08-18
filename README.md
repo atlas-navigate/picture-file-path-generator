@@ -7,7 +7,7 @@ drive), and copies its contents into a new, organized folder structure:
 <destination>/
   Pictures/<year>/<Month year>/    e.g. Pictures/2012/June 2012/
   Videos/<year>/<Month year>/
-  Misc/<mirrors the source's subfolder layout>
+  Misc/<extension>/                e.g. Misc/pdf/, Misc/txt/, Misc/no_extension/
 ```
 
 Pictures and videos are sorted by capture date (EXIF for photos, embedded
@@ -18,6 +18,11 @@ modified. If two files would land at the same destination path, both are
 kept — one is renamed with a `.1`, `.2`, ... suffix rather than overwritten.
 Zero data loss is the top priority of this app; duplicated output is
 acceptable, a lost or silently overwritten file is not.
+
+Misc files (anything that isn't a recognized picture or video extension)
+are grouped into a subfolder per file extension, lowercased and without
+the leading dot — e.g. `Misc/pdf/`, `Misc/txt/`. Files with no extension
+at all are grouped under `Misc/no_extension/`.
 
 ## Setup
 
@@ -37,6 +42,22 @@ Pick a source folder and a separate destination folder, then click
 **Scan / Preview**. Review the summary (file counts, Year/Month breakdown,
 filename conflicts) before confirming the copy — nothing is written to disk
 until you click **Confirm & Copy**.
+
+## Desktop shortcut (Linux)
+
+To install a clickable app-menu launcher (so you don't need a terminal to
+run the app after initial setup):
+
+```
+./install.sh
+```
+
+This creates/updates `.venv` and installs dependencies (same as **Setup**
+above), makes `run.sh` executable, and installs a `.desktop` file into
+`~/.local/share/applications/` (and onto `~/Desktop/` if you have one)
+pointing at this repo's `run.sh`. Afterward, "Photo & Video Organizer"
+should appear in your desktop environment's application menu. Safe to
+re-run any time (e.g. after `git pull`, to refresh dependencies).
 
 ## Tests
 

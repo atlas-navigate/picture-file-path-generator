@@ -14,7 +14,9 @@ def _build_source_tree(tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime):
       src/2012_batch/june_photo.jpg      -- EXIF 2012-06-15
       src/2020_batch/aug_photo.jpg       -- EXIF 2020-08-01
       src/no_exif/plain.jpg              -- no EXIF, forced mtime 2019-03-10
-      src/misc_stuff/notes.txt           -- misc, mirrors relative path
+      src/misc_stuff/notes.txt           -- misc, grouped under Misc/txt
+      src/misc_stuff/report.pdf          -- misc, grouped under Misc/pdf
+      src/misc_stuff/LICENSE             -- misc, no extension -> Misc/no_extension
       src/conflict_a/dup.jpg             -- EXIF 2021-01-05 (same month as conflict_b)
       src/conflict_b/dup.jpg             -- EXIF 2021-01-20 (same month -> collides)
     """
@@ -43,6 +45,12 @@ def _build_source_tree(tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime):
     notes = src / "misc_stuff" / "notes.txt"
     notes.write_text("just some notes")
 
+    report = src / "misc_stuff" / "report.pdf"
+    report.write_text("not a real pdf, just bytes for the test")
+
+    no_ext_file = src / "misc_stuff" / "LICENSE"
+    no_ext_file.write_text("no extension on this one")
+
     dup_a = src / "conflict_a" / "dup.jpg"
     make_jpeg_with_exif_datetime(dup_a, datetime(2021, 1, 5, 8, 0, 0))
 
@@ -55,6 +63,8 @@ def _build_source_tree(tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime):
         "plain_photo": plain_photo,
         "forced_mtime": forced_mtime,
         "notes": notes,
+        "report": report,
+        "no_ext_file": no_ext_file,
         "dup_a": dup_a,
         "dup_b": dup_b,
     }
@@ -82,7 +92,7 @@ def test_scan_source_builds_correct_dest_paths(
     assert plain_pf.dest_path == dest / "Pictures" / "2019" / "March 2019" / "plain.jpg"
 
 
-def test_scan_source_misc_mirrors_relative_source_path(
+def test_scan_source_misc_groups_by_extension(
     tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime
 ) -> None:
     src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
@@ -92,7 +102,15 @@ def test_scan_source_misc_mirrors_relative_source_path(
 
     notes_pf = by_source[files["notes"]]
     assert notes_pf.category == FileCategory.MISC
-    assert notes_pf.dest_path == dest / "Misc" / "misc_stuff" / "notes.txt"
+    assert notes_pf.dest_path == dest / "Misc" / "txt" / "notes.txt"
+
+    report_pf = by_source[files["report"]]
+    assert report_pf.category == FileCategory.MISC
+    assert report_pf.dest_path == dest / "Misc" / "pdf" / "report.pdf"
+
+    no_ext_pf = by_source[files["no_ext_file"]]
+    assert no_ext_pf.category == FileCategory.MISC
+    assert no_ext_pf.dest_path == dest / "Misc" / "no_extension" / "LICENSE"
 
 
 def test_scan_source_conflict_produces_disambiguated_names(
@@ -131,7 +149,7 @@ def test_scan_source_summary_counts(
 
     # 5 pictures total: june_photo, aug_photo, plain_photo, dup_a, dup_b
     assert summary.counts_by_category[FileCategory.PICTURE] == 5
-    assert summary.counts_by_category[FileCategory.MISC] == 1
+    assert summary.counts_by_category[FileCategory.MISC] == 3
     assert FileCategory.VIDEO not in summary.counts_by_category or summary.counts_by_category[FileCategory.VIDEO] == 0
 
     assert summary.counts_by_year_month[(FileCategory.PICTURE, 2012, 6)] == 1
@@ -146,7 +164,7 @@ def test_scan_source_summary_counts(
     assert summary.total_size_bytes == total_size
 
     # Sanity: number of PlannedFiles matches total file count on disk.
-    assert len(plan.files) == 6
+    assert len(plan.files) == 8
 
 
 def test_scan_source_all_source_files_accounted_for(
