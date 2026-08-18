@@ -10,8 +10,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
+    from hachoir.core import log as hachoir_log
     from hachoir.parser import createParser
     from hachoir.metadata import extractMetadata
+    # hachoir has its own independent diagnostic-print system (a
+    # module-level Log() singleton, not Python's logging module) that
+    # writes straight to stderr by default, e.g. "[warn] Skip parser
+    # 'MP4File': Unknown MOV file type" while probing a .mov before a
+    # later fallback path inside hachoir succeeds. get_video_datetime()
+    # already degrades to None/mtime correctly either way, so silence
+    # the noise here.
+    hachoir_log.log.use_print = False
     _HACHOIR_AVAILABLE = True
 except ImportError:
     _HACHOIR_AVAILABLE = False

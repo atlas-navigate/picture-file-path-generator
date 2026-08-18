@@ -8,6 +8,7 @@ filesystem mtime.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,15 @@ except ImportError:
 # exifread is used as a fallback when Pillow can't find a usable date.
 try:
     import exifread
+    # exifread's own process_file() catches its internal parsing
+    # exceptions (e.g. "no EXIF data" for most PNGs, "file format not
+    # recognized" for formats like HEIC/WEBP) and logs them via
+    # logging.getLogger("exifread").warning(...) instead of raising.
+    # Since this app never calls logging.basicConfig(), those warnings
+    # would otherwise leak to stderr on nearly every non-JPEG image --
+    # get_image_datetime() already degrades to None/mtime correctly
+    # either way, so silence the noise here.
+    logging.getLogger("exifread").setLevel(logging.ERROR)
     _EXIFREAD_AVAILABLE = True
 except ImportError:
     _EXIFREAD_AVAILABLE = False
