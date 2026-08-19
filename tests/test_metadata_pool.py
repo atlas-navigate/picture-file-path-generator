@@ -49,6 +49,19 @@ def test_empty_input_returns_empty(tmp_path: Path) -> None:
     assert errors == []
 
 
+def test_warm_up_forkserver_then_pool_still_works(tmp_path: Path, make_jpeg_with_exif_datetime) -> None:
+    """warm_up_forkserver() bootstraps the same forkserver singleton
+    _WorkerPool reuses -- calling it up front must not break (or
+    double-bootstrap) the pool a later scan actually needs."""
+    metadata_pool.warm_up_forkserver()
+
+    items = _touch_jpegs(tmp_path, 5, make_jpeg_with_exif_datetime)
+    results, errors = metadata_pool.resolve_capture_datetimes(items, batch_size=5)
+
+    assert errors == []
+    assert set(results.keys()) == {path for path, _category in items}
+
+
 # ---- Worker-crash recovery -------------------------------------------------
 #
 # These simulate a real dead worker process (BrokenProcessPool) rather than

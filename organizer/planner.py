@@ -13,6 +13,7 @@ from pathlib import Path
 from organizer import metadata, metadata_pool
 from organizer.classifier import classify_file
 from organizer.conflict import NameClaimTracker
+from organizer.crash_diagnostics import get_logger
 from organizer.models import CopyPlan, FileCategory, PlannedFile, ScanError, ScanSummary
 
 # Hardcoded English month names. Deliberately NOT using calendar.month_name
@@ -117,6 +118,12 @@ def scan_source(source_root: Path, dest_root: Path, progress_callback=None) -> C
 
         dir_records.append((dirpath_p, media_files, misc_filenames))
 
+    logger = get_logger()
+    logger.info(
+        "Directory walk done: %d directories, %d media files -- starting metadata phase",
+        len(dir_records), len(all_media_items),
+    )
+
     # Phase 2: resolve capture datetimes for every PICTURE/VIDEO file in
     # parallel, isolated in worker subprocesses -- see metadata_pool for
     # why. A file whose metadata parser crashes ends up in
@@ -125,6 +132,11 @@ def scan_source(source_root: Path, dest_root: Path, progress_callback=None) -> C
         all_media_items, on_item_resolved=_bump_progress,
     )
     errors.extend(metadata_errors)
+
+    logger.info(
+        "Metadata phase done: %d resolved, %d errors -- building plan",
+        len(precomputed), len(metadata_errors),
+    )
 
     # Phase 3: replay the per-directory grouping (PICTURE/VIDEO first, so
     # a MISC sidecar sharing a video's filename stem -- e.g. a camcorder's

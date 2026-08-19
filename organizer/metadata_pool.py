@@ -34,10 +34,38 @@ _BATCH_SIZE = 20
 # this platform's default happens to be: plain fork() is documented as
 # unsafe to combine with a multi-threaded parent process, and this pool
 # is created from ScanWorker's QThread alongside the Qt GUI thread.
-# forkserver pays its one-time bootstrap cost once (the first pool
-# created in a process), then forks fresh workers from that clean,
-# single-threaded helper for every submit()/restart() after.
+# forkserver pays its one-time bootstrap cost once (the first Process
+# started under this context in the process), then forks fresh workers
+# from that clean, single-threaded helper for every submit()/restart()
+# after -- but only if that first bootstrap itself happens before this
+# process becomes multi-threaded. See warm_up_forkserver() below: it
+# must be called from main() before QApplication exists, otherwise the
+# "first Process" ends up being _WorkerPool's, started lazily from
+# ScanWorker's QThread after Qt has already spun up its own threads --
+# which reintroduces the exact fork-safety hazard forkserver was chosen
+# to avoid.
 _MP_CONTEXT = multiprocessing.get_context("forkserver")
+
+
+def _noop() -> None:
+    pass
+
+
+def warm_up_forkserver() -> None:
+    """Force the forkserver helper process to start now, while this
+    process is still single-threaded.
+
+    multiprocessing.get_context("forkserver") returns a per-process
+    singleton, so starting and joining a trivial Process under it here
+    bootstraps the exact same helper that _WorkerPool reuses later --
+    just from a safe, single-threaded point in the process's lifetime
+    instead of lazily from ScanWorker's QThread. Call this once, as
+    early as possible in main(), before QApplication is constructed.
+    """
+    proc = _MP_CONTEXT.Process(target=_noop)
+    proc.start()
+    proc.join()
+
 
 MediaItem = tuple[Path, FileCategory]
 MetadataResult = tuple  # (datetime, str) -- see organizer.metadata.get_capture_datetime

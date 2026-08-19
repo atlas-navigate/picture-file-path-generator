@@ -27,6 +27,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from organizer.crash_diagnostics import get_logger
 from organizer.models import CopyPlan
 from organizer.planner import scan_source
 
@@ -58,6 +59,8 @@ class ScanWorker(QObject):
 
     @Slot()
     def run(self) -> None:
+        logger = get_logger()
+        logger.info("Scan starting: source=%s dest=%s", self._source_root, self._dest_root)
         try:
             plan: CopyPlan = scan_source(
                 self._source_root,
@@ -65,8 +68,12 @@ class ScanWorker(QObject):
                 progress_callback=self._on_progress,
             )
         except Exception as exc:  # noqa: BLE001 - surface any failure to the GUI thread
+            logger.exception("Scan failed with an unhandled exception")
             self.finished.emit(None, str(exc))
             return
+        logger.info(
+            "Scan finished: %d files planned, %d errors", len(plan.files), len(plan.errors),
+        )
         self.finished.emit(plan, None)
 
     def _on_progress(self, files_seen: int) -> None:
