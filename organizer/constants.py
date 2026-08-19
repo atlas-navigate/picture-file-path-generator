@@ -7,5 +7,5 @@ IMAGE_EXTENSIONS = frozenset({
 
 VIDEO_EXTENSIONS = frozenset({
     '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.m4v', '.3gp', '.mts', '.m2ts',
-    '.vod',
+    '.vod', '.mpg', '.mpeg', '.vob',
 })
