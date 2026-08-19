@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from organizer.models import FileCategory
+from organizer import metadata, planner
+from organizer.models import FileCategory, ScanError
 from organizer.planner import scan_source
 
 
@@ -279,3 +280,95 @@ def test_scan_source_never_writes_to_disk(
     # Pass 1 must be entirely read-only: dest_root must not have been
     # created just from planning.
     assert not dest.exists()
+
+
+def test_scan_source_metadata_crash_recorded_as_error_and_scan_continues(
+    tmp_path: Path, make_jpeg_with_exif_datetime, set_mtime, monkeypatch
+) -> None:
+    """If metadata extraction crashes a worker for one file (see
+    organizer.metadata_pool), scan_source() must record it as a
+    ScanError(stage="metadata") rather than losing it or aborting the
+    whole scan -- every other file must still be planned normally."""
+    src, dest, files = _build_source_tree(tmp_path, make_jpeg_with_exif_datetime, set_mtime)
+    crashed_path = files["june_photo"]
+
+    def fake_resolve(media_items, on_item_resolved=None, **kwargs):
+        results = {}
+        errors = []
+        for path, category in media_items:
+            if path == crashed_path:
+                errors.append(ScanError(
+                    source_path=path, stage="metadata",
+                    message="Parser crashed (native error) while reading metadata; file skipped",
+                ))
+            else:
+                results[path] = metadata.get_capture_datetime(path, category)
+            if on_item_resolved is not None:
+                on_item_resolved()
+        return results, errors
+
+    monkeypatch.setattr(planner.metadata_pool, "resolve_capture_datetimes", fake_resolve)
+
+    plan = scan_source(src, dest)
+
+    crashed_errors = [e for e in plan.errors if e.source_path == crashed_path]
+    assert len(crashed_errors) == 1
+    assert crashed_errors[0].stage == "metadata"
+
+    planned_sources = {pf.source_path for pf in plan.files}
+    assert crashed_path not in planned_sources
+    # Everything else in the fixture tree still made it into the plan.
+    assert files["aug_photo"] in planned_sources
+    assert files["plain_photo"] in planned_sources
+    assert files["dup_a"] in planned_sources
+    assert files["dup_b"] in planned_sources
+    assert len(plan.files) == 7  # 8 total fixture files minus the 1 crashed one
+
+
+def test_scan_source_video_metadata_crash_degrades_sidecar_grouping(
+    tmp_path: Path, set_mtime, monkeypatch
+) -> None:
+    """Documents the accepted edge case: if a VIDEO file's metadata
+    extraction crashes, its MISC sidecar can't be grouped next to it
+    (the video's dest folder is never known) and falls back to plain
+    Misc/<ext>/ grouping instead. No data loss -- the sidecar is still
+    fully accounted for."""
+    src = tmp_path / "src"
+    dest = tmp_path / "dest"
+    (src / "camcorder").mkdir(parents=True)
+
+    clip = src / "camcorder" / "clip1.VOD"
+    clip.write_bytes(b"not a real video, just bytes for the test")
+    set_mtime(clip, datetime(2015, 7, 4, 12, 0, 0))
+
+    companion = src / "camcorder" / "CLIP1.moi"
+    companion.write_bytes(b"companion index file")
+
+    def fake_resolve(media_items, on_item_resolved=None, **kwargs):
+        results = {}
+        errors = []
+        for path, category in media_items:
+            if path == clip:
+                errors.append(ScanError(
+                    source_path=path, stage="metadata",
+                    message="Parser crashed (native error) while reading metadata; file skipped",
+                ))
+            else:
+                results[path] = metadata.get_capture_datetime(path, category)
+            if on_item_resolved is not None:
+                on_item_resolved()
+        return results, errors
+
+    monkeypatch.setattr(planner.metadata_pool, "resolve_capture_datetimes", fake_resolve)
+
+    plan = scan_source(src, dest)
+    by_source = {pf.source_path: pf for pf in plan.files}
+
+    assert clip not in by_source
+    assert any(e.source_path == clip and e.stage == "metadata" for e in plan.errors)
+
+    # Sidecar is still fully accounted for, just not grouped with the
+    # (unresolvable) video's destination folder.
+    companion_pf = by_source[companion]
+    assert companion_pf.category == FileCategory.MISC
+    assert companion_pf.dest_path == dest / "Misc" / "moi" / "CLIP1.moi"
