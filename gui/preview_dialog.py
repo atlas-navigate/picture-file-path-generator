@@ -6,8 +6,10 @@ has happened yet.
 """
 from __future__ import annotations
 
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -100,6 +102,11 @@ class PreviewDialog(QDialog):
 
         return tree
 
+    def _errors_text(self) -> str:
+        return "\n".join(
+            f"[{err.stage}] {err.source_path}: {err.message}" for err in self._plan.errors
+        )
+
     def _build_errors_box(self) -> QGroupBox:
         box = QGroupBox(f"Scan errors ({len(self._plan.errors)}) -- these files were skipped")
         v = QVBoxLayout(box)
@@ -108,7 +115,28 @@ class PreviewDialog(QDialog):
             listw.addItem(f"[{err.stage}] {err.source_path}: {err.message}")
         listw.setMaximumHeight(120)
         v.addWidget(listw)
+
+        button_row = QHBoxLayout()
+        copy_button = QPushButton("Copy to Clipboard")
+        copy_button.clicked.connect(lambda: QGuiApplication.clipboard().setText(self._errors_text()))
+        button_row.addWidget(copy_button)
+
+        save_button = QPushButton("Save to File...")
+        save_button.clicked.connect(self._save_errors_to_file)
+        button_row.addWidget(save_button)
+
+        button_row.addStretch(1)
+        v.addLayout(button_row)
+
         return box
+
+    def _save_errors_to_file(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save scan errors", "scan_errors.txt", "Text files (*.txt)"
+        )
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._errors_text())
 
     def _build_button_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
