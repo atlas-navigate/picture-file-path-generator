@@ -32,7 +32,10 @@ the video instead of being split off into `Misc/<ext>/`.
 ## Setup
 
 ```
-python3 -m venv .venv      # if this fails: sudo apt install python3.14-venv
+python3 -m venv .venv      # if this fails, the required package is
+                            # python3.<minor>-venv for your system's python3
+                            # (e.g. python3.12-venv on Ubuntu 24.04) -- or just
+                            # run ./install.sh, which detects this for you.
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -58,11 +61,16 @@ run the app after initial setup):
 ```
 
 This creates/updates `.venv` and installs dependencies (same as **Setup**
-above), makes `run.sh` executable, and installs a `.desktop` file into
+above), checks for the `libxcb-cursor0` system library that Qt's X11 backend
+needs and installs it via `apt` if missing and available (harmless to skip
+under Wayland-only setups or non-Debian/Ubuntu distros -- the app may still
+work fine there), makes `run.sh` executable, and installs a `.desktop` file
+(using a bundled icon at `packaging/icon.svg`) into
 `~/.local/share/applications/` (and onto `~/Desktop/` if you have one)
 pointing at this repo's `run.sh`. Afterward, "Photo & Video Organizer"
-should appear in your desktop environment's application menu. Safe to
-re-run any time (e.g. after `git pull`, to refresh dependencies).
+should appear in your desktop environment's application menu with its own
+icon. Safe to re-run any time (e.g. after `git pull`, to refresh
+dependencies).
 
 ## Tests
 
